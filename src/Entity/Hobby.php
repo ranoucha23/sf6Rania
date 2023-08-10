@@ -75,4 +75,9 @@ class Hobby
     public function onPreUpdate() {
         $this->updatedAt = new \DateTime();
     }
+
+//    public function __toString(): string
+//    {
+//        return $this->designation;
+//    }
 }

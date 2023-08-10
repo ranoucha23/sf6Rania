@@ -3,21 +3,37 @@
 namespace App\Controller;
 
 use App\Entity\Personne;
+use App\Form\PersonneType;
+use App\Service\MailerService;
+use App\Service\PdfService;
+use App\Service\UploaderService;
 use Doctrine\Persistence\ManagerRegistry;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 
 #[Route('personne')]
 class PersonneController extends AbstractController
 {
+    public function __construct(private LoggerInterface $logger) {}
+
     #[Route('/', name: 'personne.list')]
     public function index(ManagerRegistry $doctrine): Response
     {
         $repository = $doctrine->getRepository(Personne::class);
         $personnes = $repository->findAll();
         return $this->render('personne/index.html.twig', ['personnes' => $personnes]);
+    }
+
+    #[Route('/pdf/{id}', name: 'personne.pdf')]
+    public function generatePdfPersonne($id, PdfService $pdf, ManagerRegistry $doctrine) {
+        $repository = $doctrine->getRepository(Personne::class);
+        $personne = $repository->find($id);
+        $html = $this->render('personne/detail.html.twig', ['personne' => $personne]);
+        $pdf->showPdfFile($html);
     }
 
     #[Route('/alls/age/{ageMin}/{ageMax}', name: 'personne.list.age')]
@@ -68,29 +84,65 @@ class PersonneController extends AbstractController
         return $this->render('personne/detail.html.twig', ['personne' => $personne]);
     }
 
-    #[Route('/add', name: 'personne.add')]
-    public function addPersonne(ManagerRegistry $doctrine): Response
+    #[Route('/edit/{id?0}', name: 'personne.edit')]
+    public function addPersonne(
+        $id, 
+        ManagerRegistry $doctrine, 
+        Request $request,
+        UploaderService $uploaderService,
+        MailerService $mailer): Response
     {
-        //$this->getDoctrine() : Version Sf <= 5
-        $entityManager = $doctrine->getManager();
-        $personne = new Personne();
-        $personne->setFirstname('Rania');
-        $personne->setName('Jalel');
-        $personne->setAge('27');
-        //$personne2 = new Personne();
-        //$personne2->setFirstname('Tasnim');
-        //$personne2->setName('Jalel');
-        //$personne2->setAge('19');
+        $new = false;
+        $repository = $doctrine->getRepository(Personne::class);
+        $personne = $repository->find($id);
+        if (!$personne) {
+            $new = true;
+            $personne = new Personne();
+        }
+        // $personne est l'image de notre formulaire
+        $form = $this->createForm(PersonneType::class, $personne);
+        $form->remove('createdAt');
+        $form->remove('updatedAt');
+        // Mon formulaire va aller traiter la requete
+        $form->handleRequest($request);
+        //Est ce que le formulaire a été soumis
+        if($form->isSubmitted() && $form->isValid()) {
+            // si oui,
+            // on va ajouter l'objet personne dans la base de données
 
-        // Ajouter l'operation d'insertion de la personne dans ma transaction
-        $entityManager->persist($personne);
-        //$entityManager->persist($personne2);
+            $photo = $form->get('photo')->getData();
+            // this condition is needed because the 'brochure' field is not required
+            // so the PDF file must be processed only when a file is uploaded
+            if ($photo) {
+                $directory = $this->getParameter('personne_directory');            
+                // updates the 'brochureFilename' property to store the PDF file name
+                // instead of its contents
+                $personne->setImage($uploaderService->uploadFile($photo, $directory));
+            }
 
-        //Exécute la transaction Todo
-        $entityManager->flush();
-        return $this->render('personne/detail.html.twig', [
-            'personne' => $personne,
-        ]);
+            //$this->getDoctrine() : Version Sf <= 5
+            $manager = $doctrine->getManager();
+            $manager->persist($personne);
+
+            $manager->flush();
+            // Afficher un message de succès
+            if($new) {
+                $message = " a été ajouté avec succès";
+            } else {
+                $message = " a été mis à jour avec succès";
+            }
+            $mailMessage = $personne->getFirstname().' '.$personne->getName().' '.$message;
+            $this->addFlash('success', $personne->getName(). $message);
+            $mailer->sendEmail(content: $mailMessage);
+            // Rediriger vers la liste des personnes
+            return $this->redirectToRoute('personne.list');
+        } else {
+            //Sinon
+            //On affiche notre formulaire
+            return $this->render('personne/add-personne.html.twig', [
+                'form' => $form->createView()
+            ]);
+        }
     }
 
     #[Route('/delete/{id<\d+>}', name: 'personne.delete')]

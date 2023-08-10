@@ -115,4 +115,9 @@ class Profile
     public function onPreUpdate() {
         $this->updatedAt = new \DateTime();
     }
+
+    public function __toString(): string
+    {
+        return $this->rs. " " .$this->url;
+    }
 }
