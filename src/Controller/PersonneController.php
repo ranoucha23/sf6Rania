@@ -15,7 +15,10 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('personne')]
+#[
+    Route('personne'),
+    IsGranted('ROLE_USER')
+]
 class PersonneController extends AbstractController
 {
     public function __construct(private LoggerInterface $logger) {}
@@ -56,7 +59,10 @@ class PersonneController extends AbstractController
         ]);
     }
 
-    #[Route('/alls/{page?1}/{nbre?12}', name: 'personne.list.alls')]
+    #[
+        Route('/alls/{page?1}/{nbre?12}', name: 'personne.list.alls'),
+        IsGranted("ROLE_USER")
+    ]
     public function indexAlls(ManagerRegistry $doctrine, $page, $nbre): Response
     {
         $repository = $doctrine->getRepository(Personne::class);
@@ -92,6 +98,7 @@ class PersonneController extends AbstractController
         UploaderService $uploaderService,
         MailerService $mailer): Response
     {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
         $new = false;
         $repository = $doctrine->getRepository(Personne::class);
         $personne = $repository->find($id);
@@ -119,18 +126,19 @@ class PersonneController extends AbstractController
                 // instead of its contents
                 $personne->setImage($uploaderService->uploadFile($photo, $directory));
             }
-
+            // Afficher un message de succès
+            if($new) {
+                $message = " a été ajouté avec succès";
+                $personne->setCreatedBy($this->getUser());
+            } else {
+                $message = " a été mis à jour avec succès";
+            }
             //$this->getDoctrine() : Version Sf <= 5
             $manager = $doctrine->getManager();
             $manager->persist($personne);
 
             $manager->flush();
-            // Afficher un message de succès
-            if($new) {
-                $message = " a été ajouté avec succès";
-            } else {
-                $message = " a été mis à jour avec succès";
-            }
+            
             $mailMessage = $personne->getFirstname().' '.$personne->getName().' '.$message;
             $this->addFlash('success', $personne->getName(). $message);
             $mailer->sendEmail(content: $mailMessage);
@@ -145,7 +153,10 @@ class PersonneController extends AbstractController
         }
     }
 
-    #[Route('/delete/{id<\d+>}', name: 'personne.delete')]
+    #[
+        Route('/delete/{id<\d+>}', name: 'personne.delete'),
+        IsGranted('ROLE_ADMIN')
+    ]
     public function deletePersonne(ManagerRegistry $doctrine, $id): RedirectResponse
     {
         $repository = $doctrine->getRepository(Personne::class);
